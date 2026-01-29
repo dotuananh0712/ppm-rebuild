@@ -1,10 +1,18 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Building2, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Building2, ChevronRight, List, Network } from "lucide-react";
+import { OrgKnowledgeGraph } from "@/components/org/OrgKnowledgeGraph";
+import { cn } from "@/lib/utils";
 import type { OrgUnit } from "@shared/schema";
 
+type ViewMode = "tree" | "graph";
+
 export default function Organization() {
+  const [viewMode, setViewMode] = useState<ViewMode>("tree");
+
   const { data: orgUnits, isLoading } = useQuery<OrgUnit[]>({
     queryKey: ["/api/org-units"],
   });
@@ -24,6 +32,34 @@ export default function Organization() {
             Manage organizational hierarchy and structure
           </p>
         </div>
+
+        {/* View Toggle */}
+        <div className="flex items-center gap-1 bg-muted p-1 rounded-lg">
+          <Button
+            variant={viewMode === "tree" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("tree")}
+            className={cn(
+              "gap-2",
+              viewMode === "tree" ? "" : "hover:bg-muted-foreground/10"
+            )}
+          >
+            <List className="w-4 h-4" />
+            Tree View
+          </Button>
+          <Button
+            variant={viewMode === "graph" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setViewMode("graph")}
+            className={cn(
+              "gap-2",
+              viewMode === "graph" ? "" : "hover:bg-muted-foreground/10"
+            )}
+          >
+            <Network className="w-4 h-4" />
+            Graph View
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -34,29 +70,33 @@ export default function Organization() {
         <StatBadge label="Teams" count={teams.length} isLoading={isLoading} />
       </div>
 
-      {/* Org Tree */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Organization Hierarchy</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="space-y-3">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
-          ) : orgUnits && orgUnits.length > 0 ? (
-            <OrgTree units={orgUnits} />
-          ) : (
-            <div className="text-center py-12 text-muted-foreground">
-              <Building2 className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>No organizational units found</p>
-              <p className="text-sm mt-2">Create your first org unit to get started</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* View Content */}
+      {viewMode === "tree" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Organization Hierarchy</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <div className="space-y-3">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : orgUnits && orgUnits.length > 0 ? (
+              <OrgTree units={orgUnits} />
+            ) : (
+              <div className="text-center py-12 text-muted-foreground">
+                <Building2 className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p>No organizational units found</p>
+                <p className="text-sm mt-2">Create your first org unit to get started</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <OrgKnowledgeGraph />
+      )}
     </div>
   );
 }

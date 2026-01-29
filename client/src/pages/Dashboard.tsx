@@ -2,6 +2,11 @@ import { useDashboard } from "@/hooks/use-dashboard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Users, FolderKanban, Building2, TrendingUp } from "lucide-react";
+import { CapacityDemandChart } from "@/components/charts/CapacityDemandChart";
+import { ProjectStatusChart } from "@/components/charts/ProjectStatusChart";
+import { FteByDivisionChart } from "@/components/charts/FteByDivisionChart";
+import { UtilizationTrendChart } from "@/components/charts/UtilizationTrendChart";
+import { AtRiskProjectsList } from "@/components/dashboard/AtRiskProjectsList";
 
 export default function Dashboard() {
   const { data: stats, isLoading, error } = useDashboard();
@@ -59,16 +64,14 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Placeholder sections */}
+      {/* Charts Row 1 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Capacity vs Demand</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-64 flex items-center justify-center text-muted-foreground">
-              <p>Chart will be displayed here once data is available</p>
-            </div>
+            <CapacityDemandChart />
           </CardContent>
         </Card>
 
@@ -77,9 +80,37 @@ export default function Dashboard() {
             <CardTitle className="text-lg">At-Risk Projects</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-64 flex items-center justify-center text-muted-foreground">
-              <p>No projects at risk</p>
-            </div>
+            <AtRiskProjectsList />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Charts Row 2 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Project Status</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ProjectStatusChart />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">FTE by Division</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <FteByDivisionChart />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Utilization Trend</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <UtilizationTrendChart />
           </CardContent>
         </Card>
       </div>

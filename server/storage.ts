@@ -133,6 +133,41 @@ export interface IStorage {
     totalTeams: number;
     totalFte: number;
   }>;
+
+  // Dashboard Analytics
+  getAtRiskProjects(): Promise<{
+    id: number;
+    name: string;
+    status: string;
+    priority: number;
+    shortfall: number;
+    roles: string[];
+  }[]>;
+
+  getProjectStatusDistribution(): Promise<{
+    status: string;
+    count: number;
+  }[]>;
+
+  getFteByDivision(): Promise<{
+    divisionId: number;
+    divisionName: string;
+    totalFte: number;
+    allocatedFte: number;
+  }[]>;
+
+  getUtilizationTrend(months: number): Promise<{
+    monthDate: string;
+    capacity: number;
+    demand: number;
+    utilization: number;
+  }[]>;
+
+  getCapacityDemandByMonth(months: number): Promise<{
+    monthDate: string;
+    capacity: number;
+    demand: number;
+  }[]>;
 }
 
 // ============================================================================
@@ -570,6 +605,264 @@ export class DrizzleStorage implements IStorage {
       totalTeams: Number(teamCount?.count) || 0,
       totalFte: Number(fteSum?.total) || 0,
     };
+  }
+
+  // ========== DASHBOARD ANALYTICS ==========
+
+  async getAtRiskProjects(): Promise<{
+    id: number;
+    name: string;
+    status: string;
+    priority: number;
+    shortfall: number;
+    roles: string[];
+  }[]> {
+    // Get active projects with their allocations
+    const activeProjects = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.status, "active"));
+
+    // Get current month
+    const currentMonth = new Date().toISOString().slice(0, 7) + "-01";
+
+    // For each project, calculate if there's resource shortfall
+    const atRiskProjects: {
+      id: number;
+      name: string;
+      status: string;
+      priority: number;
+      shortfall: number;
+      roles: string[];
+    }[] = [];
+
+    for (const project of activeProjects) {
+      // Get allocations for this project in current/upcoming months
+      const allocations = await db
+        .select({
+          roleId: projectRoleAllocations.roleId,
+          roleName: roles.name,
+          requiredFte: projectRoleAllocations.requiredFte,
+        })
+        .from(projectRoleAllocations)
+        .innerJoin(roles, eq(projectRoleAllocations.roleId, roles.id))
+        .where(
+          and(
+            eq(projectRoleAllocations.projectId, project.id),
+            gte(projectRoleAllocations.monthDate, currentMonth)
+          )
+        );
+
+      if (allocations.length === 0) continue;
+
+      // Get available capacity per role
+      const capacity = await this.getCapacity(currentMonth, currentMonth);
+      const capacityMap = new Map(capacity.map((c) => [c.roleId, c.availableFte]));
+
+      // Calculate shortfall
+      let totalShortfall = 0;
+      const shortfallRoles: string[] = [];
+
+      for (const alloc of allocations) {
+        const available = capacityMap.get(alloc.roleId) || 0;
+        const required = Number(alloc.requiredFte);
+        if (required > available) {
+          totalShortfall += required - available;
+          if (!shortfallRoles.includes(alloc.roleName)) {
+            shortfallRoles.push(alloc.roleName);
+          }
+        }
+      }
+
+      if (totalShortfall > 0) {
+        atRiskProjects.push({
+          id: project.id,
+          name: project.name,
+          status: project.status,
+          priority: project.priority,
+          shortfall: Math.round(totalShortfall * 100) / 100,
+          roles: shortfallRoles,
+        });
+      }
+    }
+
+    // Sort by shortfall descending
+    return atRiskProjects.sort((a, b) => b.shortfall - a.shortfall);
+  }
+
+  async getProjectStatusDistribution(): Promise<{
+    status: string;
+    count: number;
+  }[]> {
+    const result = await db
+      .select({
+        status: projects.status,
+        count: sql<number>`COUNT(*)`,
+      })
+      .from(projects)
+      .groupBy(projects.status);
+
+    return result.map((r) => ({
+      status: r.status,
+      count: Number(r.count),
+    }));
+  }
+
+  async getFteByDivision(): Promise<{
+    divisionId: number;
+    divisionName: string;
+    totalFte: number;
+    allocatedFte: number;
+  }[]> {
+    // Get all divisions
+    const divisions = await db
+      .select()
+      .from(orgUnits)
+      .where(eq(orgUnits.type, "division"));
+
+    const result: {
+      divisionId: number;
+      divisionName: string;
+      totalFte: number;
+      allocatedFte: number;
+    }[] = [];
+
+    for (const division of divisions) {
+      // Get all org units under this division (recursively find all children)
+      const childOrgUnits = await this.getAllDescendantOrgUnits(division.id);
+      const orgUnitIds = [division.id, ...childOrgUnits.map((u) => u.id)];
+
+      // Get all teams in these org units
+      const divisionTeams = await db
+        .select()
+        .from(teams)
+        .where(sql`${teams.orgUnitId} IN (${sql.join(orgUnitIds.map(id => sql`${id}`), sql`, `)})`);
+
+      if (divisionTeams.length === 0) {
+        result.push({
+          divisionId: division.id,
+          divisionName: division.name,
+          totalFte: 0,
+          allocatedFte: 0,
+        });
+        continue;
+      }
+
+      const teamIds = divisionTeams.map((t) => t.id);
+
+      // Get total FTE capacity for employees in these teams
+      const [fteCapacity] = await db
+        .select({
+          total: sql<number>`COALESCE(SUM(CAST(${employees.fteCapacity} AS DECIMAL)), 0)`,
+        })
+        .from(employees)
+        .where(
+          and(
+            sql`${employees.teamId} IN (${sql.join(teamIds.map(id => sql`${id}`), sql`, `)})`,
+            or(
+              isNull(employees.activeTo),
+              gte(employees.activeTo, new Date().toISOString().slice(0, 10))
+            )
+          )
+        );
+
+      // Get current month allocations (simplified - actual would need more logic)
+      const currentMonth = new Date().toISOString().slice(0, 7) + "-01";
+
+      // For allocated FTE, we'll use 70% of total as a placeholder
+      // In a real app, you'd calculate actual project allocations per division
+      const totalFte = Number(fteCapacity?.total) || 0;
+
+      result.push({
+        divisionId: division.id,
+        divisionName: division.name,
+        totalFte,
+        allocatedFte: Math.round(totalFte * 0.7 * 100) / 100, // Placeholder
+      });
+    }
+
+    return result.sort((a, b) => b.totalFte - a.totalFte);
+  }
+
+  private async getAllDescendantOrgUnits(parentId: number): Promise<OrgUnit[]> {
+    const children = await db
+      .select()
+      .from(orgUnits)
+      .where(eq(orgUnits.parentId, parentId));
+
+    const descendants: OrgUnit[] = [...children];
+    for (const child of children) {
+      const childDescendants = await this.getAllDescendantOrgUnits(child.id);
+      descendants.push(...childDescendants);
+    }
+    return descendants;
+  }
+
+  async getUtilizationTrend(months: number = 6): Promise<{
+    monthDate: string;
+    capacity: number;
+    demand: number;
+    utilization: number;
+  }[]> {
+    const data = await this.getCapacityDemandByMonth(months);
+    return data.map((d) => ({
+      ...d,
+      utilization: d.capacity > 0 ? Math.round((d.demand / d.capacity) * 100) : 0,
+    }));
+  }
+
+  async getCapacityDemandByMonth(months: number = 6): Promise<{
+    monthDate: string;
+    capacity: number;
+    demand: number;
+  }[]> {
+    // Generate month range
+    const result: { monthDate: string; capacity: number; demand: number }[] = [];
+    const today = new Date();
+
+    for (let i = 0; i < months; i++) {
+      const date = new Date(today.getFullYear(), today.getMonth() + i, 1);
+      const monthDate = date.toISOString().slice(0, 10);
+      const monthStr = date.toISOString().slice(0, 7);
+
+      // Get total employee FTE capacity (active employees)
+      const [capacityResult] = await db
+        .select({
+          total: sql<number>`COALESCE(SUM(CAST(${employees.fteCapacity} AS DECIMAL)), 0)`,
+        })
+        .from(employees)
+        .where(
+          and(
+            lte(employees.activeFrom, monthDate),
+            or(isNull(employees.activeTo), gte(employees.activeTo, monthDate))
+          )
+        );
+
+      // Get total demand from allocations for this month
+      const startDate = `${monthStr}-01`;
+      const nextMonth = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+      const endDate = nextMonth.toISOString().slice(0, 10);
+
+      const [demandResult] = await db
+        .select({
+          total: sql<number>`COALESCE(SUM(CAST(${projectRoleAllocations.requiredFte} AS DECIMAL)), 0)`,
+        })
+        .from(projectRoleAllocations)
+        .where(
+          and(
+            gte(projectRoleAllocations.monthDate, startDate),
+            lte(projectRoleAllocations.monthDate, endDate)
+          )
+        );
+
+      result.push({
+        monthDate: monthStr,
+        capacity: Number(capacityResult?.total) || 0,
+        demand: Number(demandResult?.total) || 0,
+      });
+    }
+
+    return result;
   }
 }
 

@@ -4,6 +4,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { FolderKanban, Plus, Calendar, Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FilterBar } from "@/components/filters/FilterBar";
+import { StatusFilter } from "@/components/filters/StatusFilter";
+import { PriorityFilter } from "@/components/filters/PriorityFilter";
+import { useProjectFilterState } from "@/hooks/use-filter-state";
 
 const statusColors: Record<string, string> = {
   planned: "bg-blue-100 text-blue-700",
@@ -21,7 +25,13 @@ const priorityLabels: Record<number, string> = {
 };
 
 export default function Projects() {
-  const { data: projects, isLoading } = useProjects();
+  const { filters, updateFilter, clearFilters, hasActiveFilters } =
+    useProjectFilterState();
+
+  const { data: projects, isLoading } = useProjects({
+    status: filters.status,
+    priority: filters.priority,
+  });
 
   const activeCount = projects?.filter((p) => p.status === "active").length ?? 0;
   const plannedCount = projects?.filter((p) => p.status === "planned").length ?? 0;
@@ -41,6 +51,18 @@ export default function Projects() {
           New Project
         </Button>
       </div>
+
+      {/* Filters */}
+      <FilterBar onClear={clearFilters} hasActiveFilters={hasActiveFilters}>
+        <StatusFilter
+          value={filters.status}
+          onChange={(v) => updateFilter("status", v)}
+        />
+        <PriorityFilter
+          value={filters.priority}
+          onChange={(v) => updateFilter("priority", v)}
+        />
+      </FilterBar>
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

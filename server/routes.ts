@@ -507,4 +507,51 @@ router.get("/dashboard/stats", async (req, res) => {
   }
 });
 
+router.get("/dashboard/at-risk-projects", async (req, res) => {
+  try {
+    const data = await storage.getAtRiskProjects();
+    res.json({ success: true, data });
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+router.get("/dashboard/project-status", async (req, res) => {
+  try {
+    const data = await storage.getProjectStatusDistribution();
+    res.json({ success: true, data });
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+router.get("/dashboard/fte-by-division", async (req, res) => {
+  try {
+    const data = await storage.getFteByDivision();
+    res.json({ success: true, data });
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+router.get("/dashboard/utilization-trend", async (req, res) => {
+  try {
+    const months = req.query.months ? Number(req.query.months) : 6;
+    const data = await storage.getUtilizationTrend(months);
+    res.json({ success: true, data });
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+router.get("/dashboard/capacity-demand", async (req, res) => {
+  try {
+    const months = req.query.months ? Number(req.query.months) : 6;
+    const data = await storage.getCapacityDemandByMonth(months);
+    res.json({ success: true, data });
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
 export default router;
